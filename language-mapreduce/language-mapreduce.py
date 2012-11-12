@@ -1,22 +1,5 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-'''
-    language-mapreduce: tokenizes text, counts token neighbor and sentence position
-    Copyright (C) 2012  David Van de Ven
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses
-''' 
 
 import string
 import cPickle as pickle
@@ -32,7 +15,7 @@ import re
 from types import *
 import itertools
 import collections
-from sentence_parser import SentenceTokenizer
+
 
 
 sentence_list = []
@@ -52,7 +35,7 @@ parser.add_argument('-trimpositions', '--trimpositions',
 		    , default=0, required=False)
 parser.add_argument('-trimneighbors', '--trimneighbors',
 		    help='drops all neighbor entries during Reduce where neighbor count < arg'
-		    , default=0, required=False)
+		    , default=1, required=False)
 		    
 args = parser.parse_args()
 num_cpus = int(args.fslice)
@@ -102,32 +85,41 @@ def trimdict(tofilter, n):
     Tokenizes and maps job slice
 '''
 def Map(L):
+    crap_threshold = 150
+    local_map = collections.defaultdict(lambda:(0,{},{}))
     # Prepare and partition data file
     data_file = load (L[1])
     # Prepare local slice of sentence list
     offset = len(data_file)/num_cpus
     chunk = lambda L,n:L[n*offset:(n+1)*offset]
     # Parse sentences with tokenizer
-    sentence_parser = SentenceTokenizer()
-    sentence_list = sentence_parser.segment_text(chunk(data_file,L[0]))
-    local_map = collections.defaultdict(lambda:(0,{},{}))
+    from pattern.en import parse
+    #sentence_parser = SentenceTokenizer()
+    #sentence_list = sentence_parser.segment_text(chunk(data_file,L[0]))
+    sentence_list = parse(chunk(data_file,L[0]),
+     tokenize = True,  # Tokenize the input, i.e. split punctuation from words.
+         tags = False,  # Find part-of-speech tags.
+       chunks = False,  # Find chunk tags, e.g. "the black cat" = NP = noun phrase.
+    relations = False,  # Find relations between chunks.
+      lemmata = False,  # Find word lemmata.
+        light = False).encode('ascii', 'ignore').split('\n')
+ 
     print multiprocessing.current_process().name, 'to map',len(sentence_list),"sentences"
-    sentence_peak = 0
+    crap_sentences = 0
     # Map the tokens
     for sentence in sentence_list:
 	# Add list of words in sentence to counts for each word in sentence
 	# after accumulating word and position counts
-	i = 0
-	for word in sentence:
-	    i += 1
-	    if i > sentence_peak:
-		    sentence_peak = i
+	for i, word in enumerate(sentence.split()):
+	    if i > crap_threshold:
+		    crap_sentences += i
+	    assert type(word) is str, "token is not a String, wtf?: %r" % type(word)
+	    #print L[0],i,word
 	    if word.isalpha():
-		#print i, word
 		local_map[word] = incrementToken(local_map[word],\
 		    i, word)
 		local_map[word] = mapNeighbors(local_map[word],\
-		    sentence, word)
+		    sentence.split(), word)
     out = []
     total_tokens = 0
     # spin accumulated token and data-carrying tuple to list of tuples for Reduce
@@ -137,7 +129,8 @@ def Map(L):
 		out.append((key, value))
     # Let user know we're done
     print multiprocessing.current_process().name, 'mapped tokens:', \
-	total_tokens, 'sentence length peak:', sentence_peak
+	total_tokens, 'junk sentences:', crap_sentences
+	
     return out
 
 
