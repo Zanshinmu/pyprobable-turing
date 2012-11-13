@@ -25,3 +25,9 @@ pip-log.txt
 
 #Mr Developer
 .mr.developer.cfg
+
+#Added
+/language-mapreduce/*.txt
+/language-mapreduce/language_maps*
+/language-mapreduce/text_*
+*.*~

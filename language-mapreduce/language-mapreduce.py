@@ -33,8 +33,9 @@ import itertools
 import collections
 
 
-
+crap_threshold = 44
 sentence_list = []
+output_dir = "language_maps"
 dict_file = '-language_map.pkl.gz'
 num_cpus = multiprocessing.cpu_count()
 parser = argparse.ArgumentParser()
@@ -64,8 +65,9 @@ def incrementToken(token_map, i, token):
     positions = token_map[1]
     count = token_map[0]+1
     neighbors = token_map[2]
-    cur_pos = positions.get(i,0)
-    positions[i] = cur_pos +1
+    if not i > crap_threshold:
+	cur_pos = positions.get(i,0)
+	positions[i] = cur_pos +1
     return (count, positions , neighbors)
 
 '''
@@ -101,7 +103,6 @@ def trimdict(tofilter, n):
     Tokenizes and maps job slice
 '''
 def Map(L):
-    crap_threshold = 150
     local_map = collections.defaultdict(lambda:(0,{},{}))
     # Prepare and partition data file
     data_file = load (L[1])
@@ -118,7 +119,7 @@ def Map(L):
        chunks = False,  # Find chunk tags, e.g. "the black cat" = NP = noun phrase.
     relations = False,  # Find relations between chunks.
       lemmata = False,  # Find word lemmata.
-        light = False).encode('ascii', 'ignore').split('\n')
+        light = True).encode('ascii', 'ignore').split('\n')
  
     print multiprocessing.current_process().name, 'to map',len(sentence_list),"sentences"
     crap_sentences = 0
@@ -127,15 +128,15 @@ def Map(L):
 	# Add list of words in sentence to counts for each word in sentence
 	# after accumulating word and position counts
 	for i, word in enumerate(sentence.split()):
-	    if i > crap_threshold:
-		    crap_sentences += i
+	    if i == crap_threshold:
+		    crap_sentences += 1
 	    assert type(word) is str, "token is not a String, wtf?: %r" % type(word)
-	    #print L[0],i,word
 	    if word.isalpha():
 		local_map[word] = incrementToken(local_map[word],\
 		    i, word)
-		local_map[word] = mapNeighbors(local_map[word],\
-		    sentence.split(), word)
+		if not i > crap_threshold:
+		    local_map[word] = mapNeighbors(local_map[word],\
+			sentence.split(), word)
     out = []
     total_tokens = 0
     # spin accumulated token and data-carrying tuple to list of tuples for Reduce
@@ -205,6 +206,8 @@ def tuple_sort(a, b):
 
 
 def dumpdictionary(known_words):
+    current = os.getcwd()
+    os.chdir(output_dir)
     output = open('plaintext_wordlist_' + os.path.splitext(infile)[0]
 		+ '.txt', 'wt')
     temp = ('', )
@@ -221,7 +224,7 @@ def dumpdictionary(known_words):
     pickle.dump(known_words, output)
     output.close()
     print 'stored dictionary from:', len(known_words), 'unique tokens'
-
+    os.chdir(current)
 
 def humansize(num):
     for x in ['bytes', 'KB', 'MB', 'GB', 'TB']:
@@ -249,6 +252,8 @@ def neighbors(L):
 
 def dumpstats(term_frequencies):
     # Output human_readable term_frequencies
+    current = os.getcwd()
+    os.chdir(output_dir)
     output = open('term_frequencies_' + os.path.splitext(infile)[0]\
 		+ '.txt', 'wt')
     for pair in term_frequencies:
@@ -261,7 +266,8 @@ def dumpstats(term_frequencies):
 	for n in neighbors(pair):
 	    output.write(' %1s %2d' % (n[0], n[1]))
 	output.write('\n\n')    
-	
+    os.chdir(current)
+    
 def process(infile):
     # prepare and load file
     print '\nStarted job', infile
@@ -277,7 +283,7 @@ def process(infile):
 	'slices of', humansize(offset)
     
     # Generate count tuples for matched words from dictionary
-    print 'Mapping job', infile
+    print 'Preparing job', infile
     # Build a pool of num_cpus processes
     pool = Pool(processes=int(num_cpus), initializer=init, initargs=(data_file,))
     
@@ -312,6 +318,8 @@ def process(infile):
 
 if __name__ == '__main__':
     files = args.files[0]
+    if not os.path.isdir(output_dir):
+	os.mkdir(output_dir)
     for infile in files:
 	process(infile)
 
