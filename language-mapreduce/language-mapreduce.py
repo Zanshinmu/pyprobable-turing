@@ -36,6 +36,7 @@ import collections
 crap_threshold = 44
 sentence_list = []
 output_dir = "language_maps"
+current_dir = os.getcwd()
 dict_file = '-language_map.pkl.gz'
 num_cpus = multiprocessing.cpu_count()
 parser = argparse.ArgumentParser()
@@ -119,7 +120,7 @@ def Map(L):
        chunks = False,  # Find chunk tags, e.g. "the black cat" = NP = noun phrase.
     relations = False,  # Find relations between chunks.
       lemmata = False,  # Find word lemmata.
-        light = True).encode('ascii', 'ignore').split('\n')
+        light = False).encode('ascii', 'ignore').split('\n')
  
     print multiprocessing.current_process().name, 'to map',len(sentence_list),"sentences"
     crap_sentences = 0
@@ -128,9 +129,10 @@ def Map(L):
 	# Add list of words in sentence to counts for each word in sentence
 	# after accumulating word and position counts
 	for i, word in enumerate(sentence.split()):
+	    # Don't position/neighbor map for unlikely candidates for a "good" sentence
+	    # Just count the word occurrence
 	    if i == crap_threshold:
 		    crap_sentences += 1
-	    assert type(word) is str, "token is not a String, wtf?: %r" % type(word)
 	    if word.isalpha():
 		local_map[word] = incrementToken(local_map[word],\
 		    i, word)
@@ -146,8 +148,10 @@ def Map(L):
 		out.append((key, value))
     # Let user know we're done
     print multiprocessing.current_process().name, 'mapped tokens:', \
-	total_tokens, 'junk sentences:', crap_sentences
-	
+	total_tokens,"sentences:",len(sentence_list)
+    if crap_sentences > 0:
+	crap = len(sentence_list)/crap_sentences
+	print 'junk sentence %:', crap
     return out
 
 
@@ -206,9 +210,8 @@ def tuple_sort(a, b):
 
 
 def dumpdictionary(known_words):
-    current = os.getcwd()
     os.chdir(output_dir)
-    output = open('plaintext_wordlist_' + os.path.splitext(infile)[0]
+    output = open('plaintext_wordlist_' + os.path.basename(infile)
 		+ '.txt', 'wt')
     temp = ('', )
     for (idx, value) in enumerate(known_words):
@@ -220,11 +223,11 @@ def dumpdictionary(known_words):
 	    temp = (value[0],value[1] )
 
     output.close()
-    output = gzip.open(os.path.splitext(infile)[0]+dict_file, 'wb')
+    output = gzip.open(os.path.basename(infile)+dict_file, 'wb')
     pickle.dump(known_words, output)
     output.close()
     print 'stored dictionary from:', len(known_words), 'unique tokens'
-    os.chdir(current)
+    os.chdir(current_dir)
 
 def humansize(num):
     for x in ['bytes', 'KB', 'MB', 'GB', 'TB']:
@@ -252,9 +255,8 @@ def neighbors(L):
 
 def dumpstats(term_frequencies):
     # Output human_readable term_frequencies
-    current = os.getcwd()
     os.chdir(output_dir)
-    output = open('term_frequencies_' + os.path.splitext(infile)[0]\
+    output = open('term_frequencies_' + os.path.basename(infile)\
 		+ '.txt', 'wt')
     for pair in term_frequencies:
 	output.write(' %s : %d ' % (pair[0], pair[1]))
@@ -266,18 +268,28 @@ def dumpstats(term_frequencies):
 	for n in neighbors(pair):
 	    output.write(' %1s %2d' % (n[0], n[1]))
 	output.write('\n\n')    
-    os.chdir(current)
+    os.chdir(current_dir)
+    
+'''
+   Makes sure num_cpus is ok
+'''
+def validateCPUs(data_file):
+    global num_cpus
+    if num_cpus == 0 or len(data_file)  < 5000:
+	num_cpus = 1
+    
     
 def process(infile):
     # prepare and load file
     print '\nStarted job', infile
     data_file = load(infile)
+    ## validate num_cpus
+    validateCPUs(data_file)
     manager = Manager()
     manager.file = data_file
 
     # Partition job into appropriate slices, prepare argument tuple for Map
     print "Parsing job to sentences"
-    
     offset = len(data_file) / num_cpus
     print 'partitioned',humansize(len(data_file)),'job to', num_cpus,\
 	'slices of', humansize(offset)
