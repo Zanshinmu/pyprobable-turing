@@ -32,13 +32,12 @@ from types import *
 import itertools
 import collections
 
-
+num_cpus = multiprocessing.cpu_count()
 crap_threshold = 44
 sentence_list = []
-output_dir = "language_maps"
+output_dir = "pyprob_maps"
 current_dir = os.getcwd()
 dict_file = '-language_map.pkl.gz'
-num_cpus = multiprocessing.cpu_count()
 parser = argparse.ArgumentParser()
 parser.add_argument('files', action='append', nargs='+',
 		    help='Filenames to parse')
@@ -47,7 +46,7 @@ parser.add_argument('-top', '--top',
 		    , default=20, required=False)
 parser.add_argument('-fslice', '--fslice',
 		    help='Overrides cpu detection and sets number of slices for job'
-		    , default=num_cpus, required=False)
+		    , default=0, required=False)
 parser.add_argument('-trimpositions', '--trimpositions',
 		    help='drops all position entries during Reduce where position count < arg'
 		    , default=0, required=False)
@@ -56,7 +55,6 @@ parser.add_argument('-trimneighbors', '--trimneighbors',
 		    , default=1, required=False)
 		    
 args = parser.parse_args()
-num_cpus = int(args.fslice)
 
 '''
  Utility function for Mapper
@@ -271,20 +269,25 @@ def dumpstats(term_frequencies):
     os.chdir(current_dir)
     
 '''
-   Makes sure num_cpus is ok
+   Makes sure we're using an appropriately sized pool
 '''
-def validateCPUs(data_file):
-    global num_cpus
-    if num_cpus == 0 or len(data_file)  < 5000:
-	num_cpus = 1
+def getcpus(data_file):
+    fslice = int(args.fslice)
+    if fslice > 0:
+	return fslice
+    elif len(data_file)  < 5000:
+	return 1
+    else:
+	return multiprocessing.cpu_count()
     
     
 def process(infile):
     # prepare and load file
     print '\nStarted job', infile
     data_file = load(infile)
-    ## validate num_cpus
-    validateCPUs(data_file)
+    # get either fslice or num_cpus
+    global num_cpus
+    num_cpus = getcpus(data_file)
     manager = Manager()
     manager.file = data_file
 
